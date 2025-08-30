@@ -8,9 +8,23 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 ## [Unreleased]
 
 ### Added
-- Preparación para publicación en Packagist
-- Documentación completa del proyecto
-- Archivo LICENSE con licencia MIT
+- Scripts de setup automático para instalación de features de Laravel
+- Validación de requisitos previos (Docker, Docker Compose)
+- Manejo mejorado de errores y limpieza automática
+- Documentación específica para template default
+- Certificados SSL dummy para desarrollo cuando OpenSSL no está disponible
+
+### Fixed
+- Comandos artisan ejecutándose antes de que los contenedores estén listos
+- Problemas de permisos en creación de directorios
+- Errores en instalación de features de Laravel
+- Manejo de errores durante generación de certificados SSL
+
+### Changed
+- Laravel se instala después de iniciar contenedores, no durante la generación
+- Features de Laravel se configuran mediante scripts de setup
+- Mejores mensajes de error y validaciones
+- Scripts de inicio más informativos con pasos claros
 
 ## [1.0.0] - 2025-01-30
 

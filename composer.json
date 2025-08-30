@@ -1,5 +1,6 @@
 {
     "name": "tacocraft/tacocraft",
+    "version": "1.0.1",
     "description": "Craft Laravel Projects with Mexican Flavor - A modern Laravel scaffolding tool",
     "keywords": [
         "laravel",

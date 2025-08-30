@@ -23,52 +23,80 @@ class ProjectGenerator
     {
         $projectPath = getcwd().'/'.$config['name'];
 
-        // Verificar si el directorio existe
-        if ($this->filesystem->exists($projectPath) && ! $config['force']) {
-            throw new \RuntimeException(sprintf(
-                'Directory "%s" already exists. Use --force to overwrite.',
-                $config['name']
-            ));
+        $style->title('Generating project: '.$config['name']);
+
+        try {
+            // Validar requisitos previos
+            $this->validateRequirements($style);
+
+            // Verificar si el directorio existe
+            if ($this->filesystem->exists($projectPath) && ! $config['force']) {
+                throw new \RuntimeException(sprintf(
+                    'Directory "%s" already exists. Use --force to overwrite.',
+                    $config['name']
+                ));
+            }
+
+            // Crear directorio del proyecto
+            $style->writeln('📁 Creating project directory...');
+            $this->createProjectDirectory($projectPath, $style);
+
+            // Copiar template base
+            $style->writeln('📋 Copying template files...');
+            $this->templateManager->copyTemplate($config['stack'], $projectPath, $config);
+
+            // Personalizar archivos
+            $style->writeln('🔧 Customizing configuration...');
+            $this->customizeFiles($projectPath, $config);
+
+            // Preparar para Laravel (solo crear estructura, no ejecutar comandos)
+            $style->writeln('📥 Preparing Laravel installation...');
+            $this->prepareForLaravel($projectPath, $config, $style);
+
+            // Configurar features adicionales
+            if ($this->hasFeatures($config)) {
+                $style->writeln('🎯 Preparing additional features...');
+                $this->installFeatures($projectPath, $config, $style);
+            }
+
+            // Generar certificados SSL
+            $style->writeln('🔐 Generating SSL certificates...');
+            $this->generateSSLCertificates($projectPath, $config);
+
+            // Inicializar Git si se solicita
+            if ($config['git']) {
+                $style->writeln('📚 Initializing Git repository...');
+                $this->initializeGit($projectPath);
+            }
+
+            // Crear scripts de inicio
+            $style->writeln('🚀 Creating startup scripts...');
+            $this->createStartupScripts($projectPath, $config);
+
+            // Configurar permisos
+            $this->setPermissions($projectPath);
+
+            $style->success('Project generated successfully!');
+            $style->text('');
+            $style->text('🚀 Next steps:');
+            $style->text('1. cd '.$config['name']);
+            $style->text('2. ./start.sh (or start.bat on Windows)');
+            $style->text('3. ./setup.sh (or setup.ps1 on Windows) after containers are running');
+            $style->text('4. Visit http://localhost');
+            $style->text('');
+            $style->text('📚 Check the README.md file in your project for detailed instructions.');
+
+        } catch (\Exception $e) {
+            $style->error('Error generating project: '.$e->getMessage());
+            
+            // Limpiar directorio si hay error
+            if ($this->filesystem->exists($projectPath)) {
+                $style->text('Cleaning up...');
+                $this->filesystem->remove($projectPath);
+            }
+            
+            throw $e;
         }
-
-        // Crear directorio del proyecto
-        $style->writeln('📁 Creating project directory...');
-        $this->filesystem->mkdir($projectPath);
-
-        // Copiar template base
-        $style->writeln('📋 Copying template files...');
-        $this->templateManager->copyTemplate($config['stack'], $projectPath, $config);
-
-        // Personalizar archivos
-        $style->writeln('🔧 Customizing configuration...');
-        $this->customizeFiles($projectPath, $config);
-
-        // Instalar Laravel
-        $style->writeln('📥 Installing Laravel...');
-        $this->installLaravel($projectPath, $config, $style);
-
-        // Configurar features adicionales
-        if ($this->hasFeatures($config)) {
-            $style->writeln('🎯 Installing additional features...');
-            $this->installFeatures($projectPath, $config, $style);
-        }
-
-        // Generar certificados SSL
-        $style->writeln('🔐 Generating SSL certificates...');
-        $this->generateSSLCertificates($projectPath, $config);
-
-        // Inicializar Git si se solicita
-        if ($config['git']) {
-            $style->writeln('📚 Initializing Git repository...');
-            $this->initializeGit($projectPath);
-        }
-
-        // Crear scripts de inicio
-        $style->writeln('🚀 Creating startup scripts...');
-        $this->createStartupScripts($projectPath, $config);
-
-        // Configurar permisos
-        $this->setPermissions($projectPath);
     }
 
     private function customizeFiles(string $projectPath, array $config): void
@@ -142,62 +170,172 @@ class ProjectGenerator
 
     private function installFeatures(string $projectPath, array $config, ConsoleStyle $style): void
     {
-        $commands = [];
-
-        // Configuraciones específicas para SAAS
+        // Para el template default, solo instalamos paquetes básicos
+        // Los comandos artisan se ejecutarán después cuando el usuario inicie el proyecto
+        
         if ($config['stack'] === 'saas') {
             $this->installSaasFeatures($projectPath, $config, $style);
-
             return;
         }
 
-        // Preparar comandos según features
-        if ($config['auth']) {
-            $commands[] = ['breeze:install', 'blade'];
-        }
-
-        if ($config['api']) {
-            $commands[] = ['install:api'];
-        }
-
-        if ($config['horizon']) {
-            $commands[] = ['horizon:install'];
-        }
-
-        if ($config['telescope']) {
-            $commands[] = ['telescope:install'];
-        }
-
-        // Ejecutar comandos
-        foreach ($commands as $cmd) {
-            $this->runArtisanCommand($projectPath, $cmd, $style);
-        }
+        // Para otros templates, solo preparamos los archivos de configuración
+        $this->prepareFeatureConfigurations($projectPath, $config, $style);
     }
 
     private function runArtisanCommand(string $projectPath, array $command, ConsoleStyle $style): void
     {
-        $fullCommand = [
-            'docker-compose',
-            '-f', $projectPath.'/docker-compose.yml',
-            'run', '--rm', 'app',
-            'php', 'artisan',
-        ];
+        $srcPath = $projectPath.'/src';
+        
+        // Verificar que Laravel esté instalado
+        if (!$this->filesystem->exists($srcPath.'/artisan')) {
+            $style->warning('Laravel not installed yet, skipping: '.implode(' ', $command));
+            return;
+        }
 
+        $fullCommand = ['php', 'artisan'];
         $fullCommand = array_merge($fullCommand, $command);
 
-        $process = new Process($fullCommand);
+        $process = new Process($fullCommand, $srcPath);
         $process->setTimeout(180);
         $process->run();
 
         if (! $process->isSuccessful()) {
-            $style->warning('Failed to run: '.implode(' ', $command));
+            $style->warning('Failed to run: '.implode(' ', $command).'. Error: '.$process->getErrorOutput());
         }
+    }
+
+    private function prepareFeatureConfigurations(string $projectPath, array $config, ConsoleStyle $style): void
+    {
+        $style->text('Preparing feature configurations...');
+        
+        // Crear archivo de configuración para features que se instalarán después
+        $featuresConfig = [
+            'auth' => $config['auth'] ?? false,
+            'api' => $config['api'] ?? false,
+            'horizon' => $config['horizon'] ?? false,
+            'telescope' => $config['telescope'] ?? false,
+        ];
+        
+        $configContent = "<?php\n\nreturn ".var_export($featuresConfig, true).";\n";
+        
+        $this->filesystem->dumpFile(
+            $projectPath.'/tacocraft-features.php',
+            $configContent
+        );
+        
+        $style->text('Feature configurations prepared. Run setup script after starting containers.');
+    }
+
+    private function validateRequirements(ConsoleStyle $style): void
+    {
+        $requirements = [
+            'docker' => 'Docker is required to run TacoCraft projects',
+            'docker-compose' => 'Docker Compose is required to orchestrate containers',
+        ];
+
+        foreach ($requirements as $command => $message) {
+            $process = new Process(['which', $command]);
+            $process->run();
+
+            if (!$process->isSuccessful()) {
+                // Try 'where' command for Windows
+                $process = new Process(['where', $command]);
+                $process->run();
+                
+                if (!$process->isSuccessful()) {
+                    throw new \RuntimeException($message);
+                }
+            }
+        }
+    }
+
+    private function createProjectDirectory(string $projectPath, ConsoleStyle $style): void
+    {
+        try {
+            $this->filesystem->mkdir($projectPath, 0755);
+        } catch (\Exception $e) {
+            throw new \RuntimeException('Failed to create project directory: '.$e->getMessage());
+        }
+    }
+
+    private function prepareForLaravel(string $projectPath, array $config, ConsoleStyle $style): void
+    {
+        $srcPath = $projectPath.'/src';
+
+        // Crear directorio src si no existe
+        if (!$this->filesystem->exists($srcPath)) {
+            $this->filesystem->mkdir($srcPath, 0755);
+        }
+
+        // Crear archivo de configuración para la instalación posterior
+        $laravelConfig = [
+            'version' => '11.*',
+            'prefer_dist' => true,
+            'install_command' => 'composer create-project laravel/laravel . 11.* --prefer-dist',
+        ];
+
+        $configContent = "<?php\n\nreturn ".var_export($laravelConfig, true).";\n";
+        
+        $this->filesystem->dumpFile(
+            $projectPath.'/tacocraft-laravel.php',
+            $configContent
+        );
+
+        $style->text('Laravel installation prepared. Run start script to install.');
     }
 
     private function generateSSLCertificates(string $projectPath, array $config): void
     {
         $sslPath = $projectPath.'/docker/nginx/ssl';
-        $this->filesystem->mkdir($sslPath);
+        
+        try {
+            $this->filesystem->mkdir($sslPath, 0755);
+        } catch (\Exception $e) {
+            // Continue if directory creation fails
+            return;
+        }
+
+        $command = [
+            'openssl', 'req', '-x509', '-nodes',
+            '-days', '365',
+            '-newkey', 'rsa:2048',
+            '-keyout', $sslPath.'/'.$config['domain'].'.key',
+            '-out', $sslPath.'/'.$config['domain'].'.crt',
+            '-subj', sprintf(
+                '/C=MX/ST=Mexico/L=Mexico City/O=TacoCraft/CN=%s',
+                $config['domain']
+            ),
+        ];
+
+        $process = new Process($command);
+        $process->run();
+
+        // Si falla OpenSSL, crear certificados dummy
+        if (!$process->isSuccessful()) {
+            $this->createDummySSLCertificates($sslPath, $config['domain']);
+        }
+    }
+
+    private function createDummySSLCertificates(string $sslPath, string $domain): void
+    {
+        // Crear certificados dummy para desarrollo
+        $dummyCert = "-----BEGIN CERTIFICATE-----\nDUMMY CERTIFICATE FOR DEVELOPMENT\n-----END CERTIFICATE-----\n";
+        $dummyKey = "-----BEGIN PRIVATE KEY-----\nDUMMY PRIVATE KEY FOR DEVELOPMENT\n-----END PRIVATE KEY-----\n";
+
+        file_put_contents($sslPath.'/'.$domain.'.crt', $dummyCert);
+        file_put_contents($sslPath.'/'.$domain.'.key', $dummyKey);
+    }
+
+    private function generateSSLCertificatesOld(string $projectPath, array $config): void
+    {
+        $sslPath = $projectPath.'/docker/nginx/ssl';
+        
+        try {
+            $this->filesystem->mkdir($sslPath, 0755);
+        } catch (\Exception $e) {
+            // Continue if directory creation fails
+            return;
+        }
 
         $command = [
             'openssl', 'req', '-x509', '-nodes',
@@ -234,10 +372,36 @@ class ProjectGenerator
         // start.sh
         $startScript = <<<'BASH'
 #!/bin/bash
-echo "🌮 Starting {{PROJECT_NAME}}..."
-make install
-make serve
-echo "✅ Your application is ready at: https://{{PROJECT_DOMAIN}}"
+echo "🚀 Starting {{PROJECT_NAME}}..."
+echo "=============================="
+
+# Iniciar contenedores
+echo "📦 Starting Docker containers..."
+docker-compose up -d
+
+# Esperar a que los contenedores estén listos
+echo "⏳ Waiting for containers to be ready..."
+sleep 10
+
+# Verificar si Laravel está instalado
+if [ ! -f "src/artisan" ]; then
+    echo "📥 Installing Laravel..."
+    docker-compose exec app composer create-project laravel/laravel . --prefer-dist
+fi
+
+echo "✅ Project started successfully!"
+echo ""
+echo "🌐 Your application is available at:"
+echo "   - HTTP: http://{{PROJECT_DOMAIN}}"
+echo "   - HTTPS: https://{{PROJECT_DOMAIN}}"
+echo ""
+echo "📋 Next steps:"
+echo "   1. Run ./setup.sh to install Laravel features"
+echo "   2. Configure your .env file in src/ directory"
+echo "   3. Start developing!"
+echo ""
+echo "📧 MailHog (email testing): http://localhost:8025"
+echo "📊 MinIO Console: http://localhost:9001"
 BASH;
 
         $startScript = str_replace(
@@ -248,6 +412,52 @@ BASH;
 
         file_put_contents($projectPath.'/start.sh', $startScript);
         chmod($projectPath.'/start.sh', 0755);
+
+        // start.bat para Windows
+        $startBat = <<<'BAT'
+@echo off
+echo 🚀 Starting {{PROJECT_NAME}}...
+echo ==============================
+echo.
+
+REM Iniciar contenedores
+echo 📦 Starting Docker containers...
+docker-compose up -d
+
+REM Esperar a que los contenedores estén listos
+echo ⏳ Waiting for containers to be ready...
+timeout /t 10 /nobreak > nul
+
+REM Verificar si Laravel está instalado
+if not exist "src\artisan" (
+    echo 📥 Installing Laravel...
+    docker-compose exec app composer create-project laravel/laravel . --prefer-dist
+)
+
+echo ✅ Project started successfully!
+echo.
+echo 🌐 Your application is available at:
+echo    - HTTP: http://{{PROJECT_DOMAIN}}
+echo    - HTTPS: https://{{PROJECT_DOMAIN}}
+echo.
+echo 📋 Next steps:
+echo    1. Run setup.ps1 to install Laravel features
+echo    2. Configure your .env file in src\ directory
+echo    3. Start developing!
+echo.
+echo 📧 MailHog (email testing): http://localhost:8025
+echo 📊 MinIO Console: http://localhost:9001
+echo.
+pause
+BAT;
+
+        $startBat = str_replace(
+            ['{{PROJECT_NAME}}', '{{PROJECT_DOMAIN}}'],
+            [$config['name'], $config['domain']],
+            $startBat
+        );
+
+        file_put_contents($projectPath.'/start.bat', $startBat);
 
         // stop.sh
         $stopScript = <<<'BASH'
@@ -272,7 +482,24 @@ BASH;
         foreach ($directories as $dir) {
             $fullPath = $projectPath.$dir;
             if ($this->filesystem->exists($fullPath)) {
-                chmod($fullPath, 0777);
+                try {
+                    chmod($fullPath, 0775);
+                    // También establecer permisos recursivamente
+                    $iterator = new \RecursiveIteratorIterator(
+                        new \RecursiveDirectoryIterator($fullPath, \RecursiveDirectoryIterator::SKIP_DOTS),
+                        \RecursiveIteratorIterator::SELF_FIRST
+                    );
+                    
+                    foreach ($iterator as $item) {
+                        if ($item->isDir()) {
+                            chmod($item->getRealPath(), 0775);
+                        } else {
+                            chmod($item->getRealPath(), 0664);
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Continue if permission setting fails
+                }
             }
         }
     }
