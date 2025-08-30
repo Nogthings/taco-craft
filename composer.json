@@ -18,14 +18,14 @@
         {
             "name": "Oscar Galvez",
             "email": "oscargalvez812@gmail.com",
-            "homepage": "https://github.com/oscargalvez",
+            "homepage": "https://github.com/Nogthings",
             "role": "Developer"
         }
     ],
     "support": {
-        "issues": "https://github.com/oscargalvez/tacocraft/issues",
-        "source": "https://github.com/oscargalvez/tacocraft",
-        "docs": "https://github.com/oscargalvez/tacocraft#readme"
+        "issues": "https://github.com/Nogthings/tacocraft/issues",
+        "source": "https://github.com/Nogthings/tacocraft",
+        "docs": "https://github.com/Nogthings/tacocraft#readme"
     },
     "require": {
         "php": "^8.1",

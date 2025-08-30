@@ -68,5 +68,5 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - Firewall básico
 - Backup automatizado
 
-[Unreleased]: https://github.com/oscargalvez/tacocraft/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/oscargalvez/tacocraft/releases/tag/v1.0.0
+[Unreleased]: https://github.com/Nogthings/tacocraft/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Nogthings/tacocraft/releases/tag/v1.0.0

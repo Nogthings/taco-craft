@@ -188,7 +188,7 @@ Todos los proyectos incluyen:
 
 ## 🐛 Reportar Bugs
 
-Si encuentras un bug, por favor [abre un issue](https://github.com/oscargalvez/tacocraft/issues) con:
+Si encuentras un bug, por favor [abre un issue](https://github.com/Nogthings/tacocraft/issues) con:
 
 - Descripción del problema
 - Pasos para reproducir
