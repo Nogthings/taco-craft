@@ -1,0 +1,25 @@
+parameters:
+    level: 8
+    paths:
+        - src
+        - tests
+    
+    # Ignore errors in vendor directory
+    excludePaths:
+        - vendor
+    
+    # Bootstrap file for autoloading
+    bootstrapFiles:
+        - vendor/autoload.php
+    
+    # Allow dynamic properties (useful for testing)
+    reportUnmatchedIgnoredErrors: false
+    
+    # Symfony Console specific ignores
+    ignoreErrors:
+        - '#Call to an undefined method Symfony\\Component\\Console\\Application::#'
+        - '#Access to an undefined property Symfony\\Component\\Console\\Application::#'
+        - '#Call to an undefined method Symfony\\Component\\Console\\Helper\\HelperInterface::ask\(\)#'
+        - '#Property .* is never read, only written#'
+        -
+            identifier: missingType.iterableValue

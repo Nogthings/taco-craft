@@ -1,0 +1,55 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * TacoCraft - Craft Laravel Projects with Mexican Flavor
+ * 
+ * @author Oscar Galvez oscargalvez812@gmail.com
+ * @version 1.0.0
+ * @package TacoCraft
+ * @license MIT
+ */
+
+// Verificar versión de PHP
+if (version_compare(PHP_VERSION, '8.1.0', '<')) {
+    fwrite(STDERR, "TacoCraft requires PHP 8.1 or higher. You are using PHP " . PHP_VERSION . PHP_EOL);
+    exit(1);
+}
+
+// Buscar autoloader
+$autoloaderPath = null;
+$paths = [
+    __DIR__ . '/../vendor/autoload.php',           // Local development
+    __DIR__ . '/../../../autoload.php',            // Composer global
+    __DIR__ . '/../autoload.php',                  // Composer project
+];
+
+foreach ($paths as $path) {
+    if (file_exists($path)) {
+        $autoloaderPath = $path;
+        break;
+    }
+}
+
+if (!$autoloaderPath) {
+    fwrite(STDERR, 'Autoloader not found. Please run "composer install"' . PHP_EOL);
+    exit(1);
+}
+
+require $autoloaderPath;
+
+use TacoCraft\Application;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Output\ConsoleOutput;
+
+// Crear y ejecutar la aplicación
+$app = new Application();
+
+try {
+    $exitCode = $app->run(new ArgvInput(), new ConsoleOutput());
+} catch (Exception $e) {
+    fwrite(STDERR, 'Error: ' . $e->getMessage() . PHP_EOL);
+    exit(1);
+}
+
+exit($exitCode);

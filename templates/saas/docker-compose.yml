@@ -1,0 +1,397 @@
+# TacoCraft SAAS MVP Template
+# Optimizado para presupuesto de $30 USD/mes
+# Stack: Laravel + MinIO + Redis + MySQL + Nginx
+version: '3.8'
+
+# Configuración de variables de entorno compartidas
+x-app-environment: &app-environment
+  APP_NAME: "{{PROJECT_NAME}}"
+  APP_ENV: production
+  APP_DEBUG: false
+  APP_URL: "https://{{PROJECT_DOMAIN}}"
+  APP_KEY: "base64:{{APP_KEY}}"
+  
+  # Database
+  DB_CONNECTION: mysql
+  DB_HOST: mysql
+  DB_PORT: 3306
+  DB_DATABASE: "{{PROJECT_NAME}}_db"
+  DB_USERNAME: "{{DB_USERNAME}}"
+  DB_PASSWORD: "{{DB_PASSWORD}}"
+  
+  # Redis
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: "{{REDIS_PASSWORD}}"
+  
+  # Cache & Queue
+  CACHE_DRIVER: redis
+  QUEUE_CONNECTION: redis
+  SESSION_DRIVER: redis
+  
+  # MinIO S3 Compatible Storage
+  MINIO_ENDPOINT: "http://minio:9000"
+  MINIO_KEY: "{{MINIO_ACCESS_KEY}}"
+  MINIO_SECRET: "{{MINIO_SECRET_KEY}}"
+  MINIO_BUCKET: "{{PROJECT_NAME}}-storage"
+  MINIO_URL: "https://{{PROJECT_DOMAIN}}/storage"
+  MINIO_USE_PATH_STYLE_ENDPOINT: true
+  
+  # Mail
+  MAIL_MAILER: smtp
+  MAIL_HOST: mailhog
+  MAIL_PORT: 1025
+  MAIL_USERNAME: null
+  MAIL_PASSWORD: null
+  MAIL_ENCRYPTION: null
+  MAIL_FROM_ADDRESS: "noreply@{{PROJECT_DOMAIN}}"
+  MAIL_FROM_NAME: "{{PROJECT_NAME}}"
+  
+  # Logging
+  LOG_CHANNEL: stack
+  LOG_DEPRECATIONS_CHANNEL: null
+  LOG_LEVEL: error
+
+networks:
+  tacocraft:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  nginx_cache:
+    driver: local
+  app_storage:
+    driver: local
+  app_cache:
+    driver: local
+
+services:
+  # Nginx - Reverse Proxy con Cache para MinIO
+  nginx:
+    image: nginx:alpine
+    container_name: {{PROJECT_NAME}}_nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./src:/var/www/html:ro
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_cache:/var/cache/nginx
+    depends_on:
+      app:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - tacocraft
+    environment:
+      - PROJECT_NAME={{PROJECT_NAME}}
+      - PROJECT_DOMAIN={{PROJECT_DOMAIN}}
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Laravel Application
+  app:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile
+      args:
+        - PHP_VERSION={{PHP_VERSION}}
+        - COMPOSER_VERSION=2.6
+        - USER_ID=1000
+        - GROUP_ID=1000
+    container_name: {{PROJECT_NAME}}_app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    environment:
+      <<: *app-environment
+    volumes:
+      - ./src:/var/www/html
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/99-custom.ini:ro
+      - ./docker/php/opcache.ini:/usr/local/etc/php/conf.d/10-opcache.ini:ro
+      - app_storage:/var/www/html/storage
+      - app_cache:/var/www/html/bootstrap/cache
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - tacocraft
+    healthcheck:
+      test: ["CMD", "php", "artisan", "tinker", "--execute=echo 'OK';"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+
+  # Queue Worker
+  queue:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile
+      args:
+        - PHP_VERSION={{PHP_VERSION}}
+        - USER_ID=1000
+        - GROUP_ID=1000
+    container_name: {{PROJECT_NAME}}_queue
+    restart: unless-stopped
+    working_dir: /var/www/html
+    environment:
+      <<: *app-environment
+    volumes:
+      - ./src:/var/www/html:ro
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/99-custom.ini:ro
+      - app_storage:/var/www/html/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    networks:
+      - tacocraft
+    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600 --memory=512
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: {{PROJECT_NAME}}_mysql
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "{{DB_ROOT_PASSWORD}}"
+      MYSQL_DATABASE: "{{PROJECT_NAME}}_db"
+      MYSQL_USER: "{{DB_USERNAME}}"
+      MYSQL_PASSWORD: "{{DB_PASSWORD}}"
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - tacocraft
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --innodb_buffer_pool_size=512M
+      --innodb_log_file_size=256M
+      --innodb_flush_log_at_trx_commit=2
+      --innodb_flush_method=O_DIRECT
+      --max_connections=100
+      --query_cache_type=1
+      --query_cache_size=64M
+      --slow_query_log=1
+      --slow_query_log_file=/var/log/mysql/slow.log
+      --long_query_time=2
+      --binlog_expire_logs_seconds=604800
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p{{DB_ROOT_PASSWORD}}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+  # Redis - Cache, Sessions & Queues
+  redis:
+    image: redis:7-alpine
+    container_name: {{PROJECT_NAME}}_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - tacocraft
+    command: redis-server /usr/local/etc/redis/redis.conf --requirepass {{REDIS_PASSWORD}}
+    sysctls:
+      - net.core.somaxconn=65535
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "{{REDIS_PASSWORD}}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+  # MinIO - S3 Compatible Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: {{PROJECT_NAME}}_minio
+    restart: unless-stopped
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+      - ./docker/minio/policies:/policies:ro
+    environment:
+      MINIO_ROOT_USER: "{{MINIO_ACCESS_KEY}}"
+      MINIO_ROOT_PASSWORD: "{{MINIO_SECRET_KEY}}"
+      MINIO_BROWSER_REDIRECT_URL: "https://{{PROJECT_DOMAIN}}/minio"
+      MINIO_SERVER_URL: "http://minio:9000"
+      MINIO_PROMETHEUS_AUTH_TYPE: "public"
+    networks:
+      - tacocraft
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+  # MailHog - Email Testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: {{PROJECT_NAME}}_mailhog
+    restart: unless-stopped
+    ports:
+      - "${MAILHOG_PORT:-8025}:8025"
+    networks:
+      - tacocraft
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8025"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    security_opt:
+      - no-new-privileges:true
+
+  # Scheduler (Cron Jobs)
+  scheduler:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile
+      args:
+        - PHP_VERSION={{PHP_VERSION}}
+        - USER_ID=1000
+        - GROUP_ID=1000
+    container_name: {{PROJECT_NAME}}_scheduler
+    restart: unless-stopped
+    working_dir: /var/www/html
+    environment:
+      <<: *app-environment
+    volumes:
+      - ./src:/var/www/html:ro
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/99-custom.ini:ro
+      - ./docker/scheduler/crontab:/etc/cron.d/laravel-scheduler:ro
+      - app_storage:/var/www/html/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    networks:
+      - tacocraft
+    command: >
+      sh -c "while true; do
+        php artisan schedule:run --verbose --no-interaction &
+        sleep 60
+      done"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+  # Backup Service (Opcional)
+  backup:
+    image: alpine:latest
+    container_name: {{PROJECT_NAME}}_backup
+    restart: "no"
+    volumes:
+      - mysql_data:/backup/mysql:ro
+      - minio_data:/backup/minio:ro
+      - ./backups:/backups
+      - ./docker/backup/backup.sh:/backup.sh:ro
+    networks:
+      - tacocraft
+    profiles:
+      - backup
+    command: /backup.sh
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    security_opt:
+      - no-new-privileges:true
