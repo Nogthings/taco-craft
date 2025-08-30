@@ -208,7 +208,7 @@ Este proyecto está bajo la licencia MIT. Ver [LICENSE](LICENSE) para más detal
 
 **Oscar Galvez**
 - Email: oscargalvez812@gmail.com
-- GitHub: [@oscargalvez](https://github.com/oscargalvez)
+- GitHub: [@Nogthings](https://github.com/Nogthings)
 
 ---
 
